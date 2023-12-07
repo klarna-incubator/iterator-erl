@@ -29,8 +29,10 @@
     flatten1/1,
     map/2,
     mapfoldl/3,
+    nthtail/2,
     sublist/2,
-    takewhile/2
+    takewhile/2,
+    zip/3
 ]).
 %% High-level iterator constructors
 -export([
@@ -215,6 +217,30 @@ yield_mapfoldl({Fun, State0, InnerIterator0}) ->
             done
     end.
 
+%% @doc Discards first N elements of inner iterator
+%% If inner iterator procuced less than N elements, it fails with `badarg' error.
+%%
+%% Similar to `lists:nthtail/2'
+-spec nthtail(non_neg_integer(), iterator(Data)) -> iterator(Data) when
+    Data :: any().
+nthtail(N, InnerIterator) ->
+    new(fun yield_nthtail/1, {N, InnerIterator}).
+
+yield_nthtail({0, InnerIter}) ->
+    case next(InnerIter) of
+        {ok, Data, NewInnerIter} ->
+            {Data, {0, NewInnerIter}};
+        done ->
+            done
+    end;
+yield_nthtail({N, InnerIter}) ->
+    case next(InnerIter) of
+        {ok, _Data, NewInnerIter} ->
+            yield_nthtail({N - 1, NewInnerIter});
+        done ->
+            error(too_short)
+    end.
+
 %% @doc Consumes the iterator that returns a list item and yields list elements one-by-one
 %% Opposite of `chunks/1'
 -spec flatmap(fun((InType) -> [OutType]), iterator(InType)) -> iterator(OutType) when
@@ -397,6 +423,51 @@ consume_n({ok, Data, InnerIterator}, N, Acc) ->
     consume_n(next(InnerIterator), N - 1, [Data | Acc]);
 consume_n(done, _, Acc) ->
     lists:reverse(Acc).
+
+%% @doc Consumes 2 iterators at the same time, returns an iterator that yields
+%% 2-tuples containing next element of each iterator.
+%% If one of the iterators is done before the other, the behaviour would depend
+%% on `How' parameter:
+%% * If it is `trim', then the other iterator will be closed and `zip/3' would finish.
+%% * If it is `{pad, {Default1, Default2}', then the values of the finished iterator
+%%   would be replaced with Default until the 2nd iterator is done.
+%%
+%% Similar to OTP-26+ `lists:zip/3', but doesn't support `fail' behaviour (just because
+%% it rarely makes sense for lazy sequences; feel free to file an issue otherwise).
+-spec zip(iterator(Data1), iterator(Data2), trim | {pad, {Default1, Default2}}) ->
+    iterator({Data1 | Default1, Data2 | Default2})
+when
+    Data1 :: any(),
+    Data2 :: any(),
+    Default1 :: any(),
+    Default2 :: any().
+zip(Iter1, Iter2, How) ->
+    new(fun yield_zip/1, {Iter1, Iter2, How}).
+
+yield_zip({Iter1, Iter2, How}) ->
+    case {maybe_next(Iter1), maybe_next(Iter2)} of
+        {{ok, Item1, NewIter1}, {ok, Item2, NewIter2}} ->
+            {{Item1, Item2}, {NewIter1, NewIter2, How}};
+        {done, done} ->
+            done;
+        {done, {ok, _Item2, NewIter2}} when How =:= trim ->
+            close(NewIter2),
+            done;
+        {{ok, _Item1, NewIter1}, done} when How =:= trim ->
+            close(NewIter1),
+            done;
+        {done, {ok, Item2, NewIter2}} when element(1, How) =:= pad ->
+            {pad, {Default1, _}} = How,
+            {{Default1, Item2}, {done, NewIter2, How}};
+        {{ok, Item1, NewIter1}, done} when element(1, How) =:= pad ->
+            {pad, {_, Default2}} = How,
+            {{Item1, Default2}, {NewIter1, done, How}}
+    end.
+
+maybe_next(done) ->
+    done;
+maybe_next(#iter{} = Iter) ->
+    next(Iter).
 
 %% @doc Iterator over .eterm file (file containing dot-terminated Erlang terms)
 %% XXX: never abandon this iterator from long-running processes! It would leak file descriptor!

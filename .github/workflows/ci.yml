@@ -34,7 +34,7 @@ jobs:
       run: rebar3 proper -c
 
     - name: Coverage
-      run: rebar3 cover --verbose --min_coverage 85
+      run: rebar3 cover --verbose --min_coverage 80  # zip/3 can only be fully tested on OTP-26+
 
     - name: Run Xref
       run: rebar3 xref

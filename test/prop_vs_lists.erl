@@ -19,7 +19,8 @@
     prop_chunks/0,
     prop_chunk_flatten/0,
     prop_append/0,
-    prop_combination/0
+    prop_combination/0,
+    prop_zip/0
 ]).
 
 -include_lib("proper/include/proper.hrl").
@@ -79,6 +80,29 @@ prop_map() ->
             ?assertEqual(
                 lists:map(F, List),
                 iterator:to_list(iterator:map(F, ListIter))
+            ),
+            true
+        end
+    ).
+
+prop_nthtail() ->
+    Gen = ?LET(
+        List,
+        proper_types:list(),
+        begin
+            {proper_types:integer(0, length(List)), List}
+        end
+    ),
+    ?FORALL(
+        {N, List},
+        Gen,
+        begin
+            FaultyIter = iterator:nthtail(length(List) + 1, iterator:from_list(List)),
+            ?assertError(too_short, iterator:next(FaultyIter)),
+            Iter = iterator:from_list(List),
+            ?assertEqual(
+                lists:nthtail(N, List),
+                iterator:to_list(iterator:nthtail(N, Iter))
             ),
             true
         end
@@ -313,6 +337,47 @@ prop_append() ->
             true
         end
     ).
+
+-if(?OTP_RELEASE >= 26).
+prop_zip() ->
+    Gen = {
+        proper_types:list(),
+        proper_types:list(),
+        proper_types:oneof([
+            trim,
+            {pad, {default, default}}
+        ])
+    },
+    ?FORALL(
+        {List1, List2, How},
+        Gen,
+        begin
+            Iter1 = iterator:from_list(List1),
+            Iter2 = iterator:from_list(List2),
+            ?assertEqual(
+                lists:zip(List1, List2, How),
+                iterator:to_list(iterator:zip(Iter1, Iter2, How))
+            ),
+            true
+        end
+    ).
+-else.
+prop_zip() ->
+    Gen = proper_types:list(),
+    ?FORALL(
+        List,
+        Gen,
+        begin
+            Iter1 = iterator:from_list(List),
+            Iter2 = iterator:from_list(List),
+            ?assertEqual(
+                lists:zip(List, List),
+                iterator:to_list(iterator:zip(Iter1, Iter2, trim))
+            ),
+            true
+        end
+    ).
+-endif.
 
 %% @doc Tests that various high-order iterators can be chained together
 prop_combination() ->
