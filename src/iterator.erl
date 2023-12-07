@@ -9,31 +9,42 @@
 %%% It tries to mimick some of the APIs of the `lists' module where possible.
 -module(iterator).
 
+%% Primitives
+-export([
+    close/1,
+    is_iterator/1,
+    new/2,
+    new/3,
+    next/1
+]).
+%% Iterators that return another iterators (to build pipeline)
 -export([
     chunks/2,
-    close/1,
     concat/1,
     append/1,
     dropwhile/2,
-    eterm_fd_iterator/1,
-    eterm_file_iterator/1,
     filter/2,
     flatmap/2,
     flatten1/1,
-    fold/3,
-    from_list/1,
-    from_map/1,
-    is_iterator/1,
     map/2,
     mapfoldl/3,
-    new/2,
-    new/3,
-    next/1,
-    search/2,
     sublist/2,
-    takewhile/2,
+    takewhile/2
+]).
+%% High-level iterator constructors
+-export([
+    eterm_fd_iterator/1,
+    eterm_file_iterator/1,
+    from_list/1,
+    from_map/1
+]).
+%% Functions which consume iterators returning some value (to complete the pipeline)
+-export([
+    fold/3,
+    search/2,
     to_list/1
 ]).
+
 -export_type([iterator/1, yield_fun/1]).
 -deprecated([concat/1]).
 
@@ -179,7 +190,9 @@ yield_map({Fun, InnerIter}) ->
             done
     end.
 
-%% @doc The lazy equivalent of `lists:mapfoldl/2'---transforms each element
+%% @doc Stateful `map'
+%%
+%% Somewhat equivalent of `lists:mapfoldl/2'---transforms each element
 %% of the sequence while keeping a stateful context.
 %%
 %% It does not emit intermediate or final states, like `lists:mapfoldl/2' does,
