@@ -24,6 +24,7 @@
     append/1,
     dropwhile/2,
     filter/2,
+    filtermap/2,
     flatmap/2,
     flatten1/1,
     map/2,
@@ -252,6 +253,28 @@ yield_filter({Fun, InnerIter}) ->
                     {Data, {Fun, NewInnerIter}};
                 false ->
                     yield_filter({Fun, NewInnerIter})
+            end;
+        done ->
+            done
+    end.
+
+%% @doc Returns a new iterator that yields (optionally modified) elements of `InnerIterator'
+%% if `Fun' returns `true' or `{true, NewValue}' and skips the element if `Fun' returns `false'.
+%%
+%% Similar to `lists:filtermap/2'
+filtermap(Fun, InnerIterator) ->
+    new(fun yield_filtermap/1, {Fun, InnerIterator}).
+
+yield_filtermap({Fun, InnerIter}) ->
+    case next(InnerIter) of
+        {ok, Data, NewInnerIter} ->
+            case Fun(Data) of
+                true ->
+                    {Data, {Fun, NewInnerIter}};
+                {true, NewData} ->
+                    {NewData, {Fun, NewInnerIter}};
+                false ->
+                    yield_filtermap({Fun, NewInnerIter})
             end;
         done ->
             done

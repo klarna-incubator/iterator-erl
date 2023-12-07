@@ -10,6 +10,7 @@
     prop_mapfoldl/0,
     prop_flatmap/0,
     prop_filter/0,
+    prop_filtermap/0,
     prop_dropwhile/0,
     prop_takewhile/0,
     prop_search/0,
@@ -123,6 +124,30 @@ prop_filter() ->
             ?assertEqual(
                 lists:filter(F, List),
                 iterator:to_list(iterator:filter(F, ListIter))
+            ),
+            true
+        end
+    ).
+
+prop_filtermap() ->
+    Gen = proper_types:list(
+            proper_types:oneof([
+                                proper_types:integer(),
+                                proper_types:binary(),
+                                proper_types:atom()
+                               ])),
+    ?FORALL(
+        List,
+        Gen,
+        begin
+            ListIter = iterator:from_list(List),
+            F = fun(V) when is_integer(V) -> {true, V * 2};
+                   (V) when is_binary(V) -> true;
+                   (V) when is_atom(V) -> false
+                end,
+            ?assertEqual(
+                lists:filtermap(F, List),
+                iterator:to_list(iterator:filtermap(F, ListIter))
             ),
             true
         end
