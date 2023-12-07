@@ -1,0 +1,14 @@
+{application, iterator, [
+    {description, "Lazy sequences simulating stdlib `lists` module API"},
+    {vsn, "0.0.1"},
+    {modules, []},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib
+    ]},
+    {env, []},
+    {included_applications, []},
+    {licenses, ["Apache 2.0"]},
+    {links, [{"Github", "https://github.com/klarna-incubator/iterator-erl"}]}
+]}.
