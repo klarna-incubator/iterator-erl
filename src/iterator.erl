@@ -234,6 +234,9 @@ yield_flatmap({Fun, [Item | Tail], InnerIter}) ->
     {Item, {Fun, Tail, InnerIter}}.
 
 %% @doc Converts iterator that yields lists to flat list (non-recursive)
+%%
+%% Do not confuse with `append/1'. This function takes SINGLE iterator that yields
+%% lists and returns list elements one-by-one.
 -spec flatten1(iterator([Type])) -> iterator(Type).
 flatten1(InnerIterator) ->
     flatmap(fun(V) -> V end, InnerIterator).

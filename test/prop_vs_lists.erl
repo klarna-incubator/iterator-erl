@@ -9,6 +9,7 @@
     prop_map/0,
     prop_mapfoldl/0,
     prop_flatmap/0,
+    prop_flatten1/0,
     prop_filter/0,
     prop_filtermap/0,
     prop_dropwhile/0,
@@ -108,6 +109,21 @@ prop_flatmap() ->
             ?assertEqual(
                 lists:flatmap(F, List),
                 iterator:to_list(iterator:flatmap(F, ListIter))
+            ),
+            true
+        end
+    ).
+
+prop_flatten1() ->
+    Gen = proper_types:list(proper_types:list()),
+    ?FORALL(
+        ListOfLists,
+        Gen,
+        begin
+            Iterator = iterator:from_list(ListOfLists),
+            ?assertEqual(
+                lists:append(ListOfLists),
+                iterator:to_list(iterator:flatten1(Iterator))
             ),
             true
         end

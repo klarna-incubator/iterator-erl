@@ -31,7 +31,7 @@ jobs:
       run: rebar3 proper -c
 
     - name: Coverage
-      run: rebar3 cover --verbose --min_coverage 80
+      run: rebar3 cover --verbose --min_coverage 85
 
     - name: Run Xref
       run: rebar3 xref
