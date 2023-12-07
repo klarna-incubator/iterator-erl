@@ -27,6 +27,9 @@ jobs:
     - name: Compile
       run: rebar3 compile
 
+    - name: Format
+      run: rebar3 fmt --check
+
     - name: Run Proper Tests
       run: rebar3 proper -c
 

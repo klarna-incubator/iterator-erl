@@ -147,20 +147,22 @@ prop_filter() ->
 
 prop_filtermap() ->
     Gen = proper_types:list(
-            proper_types:oneof([
-                                proper_types:integer(),
-                                proper_types:binary(),
-                                proper_types:atom()
-                               ])),
+        proper_types:oneof([
+            proper_types:integer(),
+            proper_types:binary(),
+            proper_types:atom()
+        ])
+    ),
     ?FORALL(
         List,
         Gen,
         begin
             ListIter = iterator:from_list(List),
-            F = fun(V) when is_integer(V) -> {true, V * 2};
-                   (V) when is_binary(V) -> true;
-                   (V) when is_atom(V) -> false
-                end,
+            F = fun
+                (V) when is_integer(V) -> {true, V * 2};
+                (V) when is_binary(V) -> true;
+                (V) when is_atom(V) -> false
+            end,
             ?assertEqual(
                 lists:filtermap(F, List),
                 iterator:to_list(iterator:filtermap(F, ListIter))
