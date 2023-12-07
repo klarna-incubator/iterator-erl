@@ -1,51 +1,101 @@
-# Project Name
-> Short blurb about what your project does.
+# iterator.erl
+> Lazy sequences simulating stdlib `lists` module API
 
-[![Build Status][ci-image]][ci-url]
+[![CI checks](https://github.com/klarna-incubator/iterator-erl/actions/workflows/ci.yml/badge.svg)](https://github.com/klarna-incubator/iterator-erl/actions/workflows/ci.yml)
 [![License][license-image]][license-url]
 [![Developed at Klarna][klarna-image]][klarna-url]
 
 
-One to two paragraph statement about your project and what it does.
-
-## First steps
-
-<details>
- <summary>Installation (for Admins)</summary>
-  
-  Currently, new repositories can be created only by a Klarna Open Source community lead. Please reach out to us if you need assistance.
-  
-  1. Create a new repository by clicking ‘Use this template’ button.
-  
-  2. Make sure your newly created repository is private.
-  
-  3. Enable Dependabot alerts in your candidate repo settings under Security & analysis. You need to enable ‘Allow GitHub to perform read-only analysis of this repository’ first.
-</details>
-
-1. Update `README.md` and `CHANGELOG.md`.
-
-2. Optionally, clone [the default contributing guide](https://github.com/klarna-incubator/.github/blob/main/CONTRIBUTING.md) into `.github/CONTRIBUTING.md`.
-
-3. Do *not* edit `LICENSE`.
+This library provides an interface to define your own "lazy sequences" and also provides a list of
+helpers to operate on such sequences that mimicks the OTP stdlib [lists](https://www.erlang.org/doc/man/lists)
+functions.
+"lazy sequences" allows you to operate on potentially huge streams of data the same way you would
+operate on them if they are completely loaded into memory as a very long list, but doing so only
+using constant memory footprint. It achieves that by loading one-list-item at a time.
 
 ## Usage example
 
-A few motivating and useful examples of how your project can be used. Spice this up with code blocks and potentially more screenshots.
+It's primary intention is that you could define your own "iterators" using our generic interface
+and then use our helper functions to build the "processing" pipeline for the stream of data.
 
-_For more examples and usage, please refer to the [Docs](TODO)._
+For example, let's implement an iterator that returns next line from a file each time:
 
-## Development setup
+```erlang
+file_line_iterator(FileName) ->
+    {ok, Fd} = file:open(Filename, [read, read_ahead, raw]),
+    iterator:new(fun yield_file_line/1, Fd, fun close_file/1).
 
-Describe how to install all development dependencies and how to run an automated test-suite of some kind. Potentially do this for multiple platforms.
+yield_file_line(Fd) ->
+    case file:read_line(Fd) of
+        {ok, Line} ->
+            {Line, Fd};
+        eof ->
+            done;
+        {error, Reason} ->
+            error(Reason)
+    end.
 
-```sh
-make install
-npm test
+close_file(Fd) ->
+    file:close(Fd).
 ```
 
-## How to contribute
+You use `iterator:new/3` to create the (opaque) iterator structure, where
 
-See our guide on [contributing](.github/CONTRIBUTING.md).
+* 1st argument is the "yield" function - the function that returns either
+  `{NextSequenceElement, NewState}` or atom `done` when sequence is exhausted
+* 2nd argument is the initial state of the iterator (in this example it does not change)
+* 3rd optional argument is the "close" garbage-collection function that will be called when
+  iterator is exhausted or discarded (eg, used with `iterator:takewhile/2`)
+
+After that you can use the primitive `iterator:next/1` function that returns either
+`{ok, NextElement, NewIterator}` or `done`. But the real power comes when you build
+a "processing pipeline" instead.
+
+Then we may build a "processing pipeline" for this iterator. Let's say we want to filter-out the
+lines that match a regular expression:
+
+```erlang
+LinesIterator = file_line_iterator("my_file.txt"),
+MatchingIterator =
+    iterator:filter(
+        fun(Line) ->
+            case re:run(Line, "^[0-9]+$") of
+                nomatch ->
+                    false;
+                {match, _} ->
+                    true
+            end
+        end, LinesIterator).
+```
+
+And then we want to convert each matching line to integer
+
+```erlang
+IntegerIterator = iterator:map(fun erlang:binary_to_integer/1, MatchingIterator).
+```
+
+And finally we want to sum all the integers
+
+```erlang
+Sum = iterator:fold(fun(Int, Acc) -> Int + Acc end, 0, IntegerIterator).
+```
+
+The `iterator:fold/2` is different from other pipeline functions because it does not return
+the new iterator, but it "forces" the execution of iterator by reading inner iterator's elements
+one-by-one and applying `fun` to them, maintaining the `Acc` state.
+Another such functions are `iterator:to_list/1`, `iterator:search/2`, `iterator:mapfoldl/3`.
+
+With this code, using `iterator`, we managed to go through the whole file never keeping more than
+a single line in-memory but were able to work with it using the same code style and high-order
+functions as what we would use if we read all the file lines in memory.
+
+## Setup
+
+Add it to your `rebar.config`
+
+```erlang
+{deps, [iterator]}.
+```
 
 ## Release History
 
@@ -53,7 +103,7 @@ See our [changelog](CHANGELOG.md).
 
 ## License
 
-Copyright © 2022 Klarna Bank AB
+Copyright © 2023 Klarna Bank AB
 
 For license details, see the [LICENSE](LICENSE) file in the root of this project.
 
