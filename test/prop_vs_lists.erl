@@ -16,7 +16,7 @@
     prop_sublist/0,
     prop_chunks/0,
     prop_chunk_flatten/0,
-    prop_concat/0,
+    prop_append/0,
     prop_combination/0
 ]).
 
@@ -146,7 +146,7 @@ prop_dropwhile() ->
 
 prop_takewhile() ->
     Gen = proper_types:list(proper_types:integer()),
-    P = ?FORALL(
+    ?FORALL(
         List,
         Gen,
         begin
@@ -162,7 +162,7 @@ prop_takewhile() ->
 
 prop_search() ->
     Gen = {proper_types:integer(), proper_types:list(proper_types:integer())},
-    P = ?FORALL(
+    ?FORALL(
         {Needle, Haystack},
         Gen,
         begin
@@ -256,7 +256,7 @@ prop_chunk_flatten() ->
         end
     ).
 
-prop_concat() ->
+prop_append() ->
     Gen = proper_types:list(proper_types:list()),
     ?FORALL(
         ListOfLists,
@@ -264,8 +264,8 @@ prop_concat() ->
         begin
             Iterators = lists:map(fun iterator:from_list/1, ListOfLists),
             ?assertEqual(
-                lists:concat(ListOfLists),
-                iterator:to_list(iterator:concat(Iterators))
+                lists:append(ListOfLists),
+                iterator:to_list(iterator:append(Iterators))
             ),
             true
         end

@@ -13,6 +13,7 @@
     chunks/2,
     close/1,
     concat/1,
+    append/1,
     dropwhile/2,
     eterm_fd_iterator/1,
     eterm_file_iterator/1,
@@ -34,6 +35,7 @@
     to_list/1
 ]).
 -export_type([iterator/1, yield_fun/1]).
+-deprecated([concat/1]).
 
 %% Iterator APIs
 -type yield_fun(Type) :: fun((St :: any()) -> {Type, St :: any()} | done).
@@ -242,21 +244,25 @@ yield_filter({Fun, InnerIter}) ->
             done
     end.
 
-%% @doc "concatenates" multiple iterators to a single steam (non-recursive, only top-level)
-%% Similar to `lists:concat/1'
--spec concat([iterator(any())]) -> iterator(any()).
-concat(InnerIterators) ->
-    new(fun yield_concat/1, InnerIterators).
+%% @doc Joins multiple iterators to a single steam (non-recursive, only top-level)
+%% Similar to `lists:append/1'
+-spec append([iterator(any())]) -> iterator(any()).
+append(InnerIterators) ->
+    new(fun yield_append/1, InnerIterators).
 
-yield_concat([CurrentIter | Tail]) ->
+yield_append([CurrentIter | Tail]) ->
     case next(CurrentIter) of
         {ok, Item, NewCurrentIter} ->
             {Item, [NewCurrentIter | Tail]};
         done ->
-            yield_concat(Tail)
+            yield_append(Tail)
     end;
-yield_concat([]) ->
+yield_append([]) ->
     done.
+
+%% @doc deprecated
+concat(Inner) ->
+    append(Inner).
 
 %% @doc Skips elements of inner iterator until `Fun' returns `true'
 %% Similar to `lists:dropwhile/2'
