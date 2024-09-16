@@ -44,6 +44,7 @@
 %% Functions which consume iterators returning some value (to complete the pipeline)
 -export([
     fold/3,
+    foreach/2,
     search/2,
     to_list/1
 ]).
@@ -174,6 +175,21 @@ fold(Fun, Acc, Iterator) ->
             Acc;
         {ok, Data, NewIterator} ->
             fold(Fun, Fun(Data, Acc), NewIterator)
+    end.
+
+%% @doc Applies `Fun' to each element of the iterator, discarding the results
+%% It does not return a new iterator, but atom ok and always consumes the iterator to the end.
+%% Only makes sense for side-effecting functions.
+%% Similar to `lists:foreach/2'
+-spec foreach(fun((Type) -> any()), iterator(Type)) -> ok when
+    Type :: any().
+foreach(Fun, Iterator) ->
+    case next(Iterator) of
+        {ok, Data, NewIterator} ->
+            Fun(Data),
+            foreach(Fun, NewIterator);
+        done ->
+            ok
     end.
 
 %% @doc Returns a new iterator that yields results of application of the `Fun' to the each element

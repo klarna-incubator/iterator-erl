@@ -83,7 +83,7 @@ Sum = iterator:fold(fun(Int, Acc) -> Int + Acc end, 0, IntegerIterator).
 The `iterator:fold/2` is different from other pipeline functions because it does not return
 the new iterator, but it "forces" the execution of iterator by reading inner iterator's elements
 one-by-one and applying `fun` to them, maintaining the `Acc` state.
-Another such functions are `iterator:to_list/1`, `iterator:search/2`, `iterator:mapfoldl/3`.
+Another such functions are `iterator:to_list/1`, `iterator:search/2`, `iterator:foreach/2`.
 
 With this code, using `iterator`, we managed to go through the whole file never keeping more than
 a single line in-memory but were able to work with it using the same code style and high-order

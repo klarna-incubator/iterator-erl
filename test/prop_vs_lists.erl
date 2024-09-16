@@ -6,6 +6,7 @@
     prop_from_to_list/0,
     prop_from_map_to_list/0,
     prop_fold/0,
+    prop_foreach/0,
     prop_map/0,
     prop_mapfoldl/0,
     prop_flatmap/0,
@@ -64,6 +65,34 @@ prop_fold() ->
             ?assertEqual(
                 lists:foldl(F, 0, ListOfInts),
                 iterator:fold(F, 0, ListIter)
+            ),
+            true
+        end
+    ).
+
+prop_foreach() ->
+    Gen = proper_types:list(),
+    ?FORALL(
+        List,
+        Gen,
+        begin
+            Counter = counters:new(2, []),
+            ListIter = iterator:from_list(List),
+            ok = lists:foreach(
+                fun(V) -> counters:add(Counter, 1, 1) end,
+                List
+            ),
+            ok = iterator:foreach(
+                fun(V) -> counters:add(Counter, 2, 1) end,
+                ListIter
+            ),
+            ?assertEqual(
+                counters:get(Counter, 1),
+                counters:get(Counter, 2)
+            ),
+            ?assertEqual(
+                length(List),
+                counters:get(Counter, 1)
             ),
             true
         end
