@@ -155,6 +155,7 @@ shutdown(#state{free = Free, busy = Busy}) ->
     ],
     ok.
 
+%% @private
 loop(Parent, F) ->
     receive
         {?MODULE, Parent, {next, I}} ->
