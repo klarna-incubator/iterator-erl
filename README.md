@@ -89,6 +89,14 @@ With this code, using `iterator`, we managed to go through the whole file never 
 a single line in-memory but were able to work with it using the same code style and high-order
 functions as what we would use if we read all the file lines in memory.
 
+Full list of helper functions see in the `iterator.erl`. But the naming is the same as in the
+OTP `lists` module.
+
+Functions `iterator_pmap:pmap/2` and `iterator_pmap:pmap/3` provide parallel version
+of `iterator:map/2`: it takes iterator as input and returns a new iterator where map function
+is executed for each input element in parallel on a pool of worker processes.
+While elements of input are processed in parallel, the ordering of elements is preserved.
+
 ## Setup
 
 Add it to your `rebar.config`
