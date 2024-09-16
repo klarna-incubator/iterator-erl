@@ -16,7 +16,8 @@ jobs:
           - "23.3"
           - "24.3"
           - "25.3"
-          - "26"
+          - "26.2"
+          - "27.0"
     runs-on: ${{ matrix.platform }}
     container:
       image: erlang:${{ matrix.otp-version }}
