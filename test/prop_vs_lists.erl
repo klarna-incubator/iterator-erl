@@ -79,11 +79,11 @@ prop_foreach() ->
             Counter = counters:new(2, []),
             ListIter = iterator:from_list(List),
             ok = lists:foreach(
-                fun(V) -> counters:add(Counter, 1, 1) end,
+                fun(_V) -> counters:add(Counter, 1, 1) end,
                 List
             ),
             ok = iterator:foreach(
-                fun(V) -> counters:add(Counter, 2, 1) end,
+                fun(_V) -> counters:add(Counter, 2, 1) end,
                 ListIter
             ),
             ?assertEqual(
