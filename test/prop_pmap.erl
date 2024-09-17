@@ -6,7 +6,8 @@
     prop_order_is_preserved/0,
     prop_vs_lists/0,
     prop_interrupted/0,
-    prop_chained/0
+    prop_chained/0,
+    prop_timeout/0
 ]).
 
 -include_lib("proper/include/proper.hrl").
@@ -149,6 +150,38 @@ prop_chained() ->
             ?assertEqual(
                 lists:map(F2, lists:map(F1, List)),
                 iterator:to_list(Pmap2Iter)
+            ),
+            ?assertEqual([], iterator_pmap:flush()),
+            assert_links(Links0),
+            true
+        end
+    ).
+
+%% @doc Result receive timeout shuts down the pool and generates a `timeout' exception
+prop_timeout() ->
+    Gen = {
+        proper_types:non_empty(proper_types:list(proper_types:pos_integer())),
+        proper_types:pos_integer()
+    },
+    ?FORALL(
+        {List, C},
+        Gen,
+        begin
+            F = fun(X) -> timer:sleep(min(1000, X * 10)) end,
+            ListIter = iterator:from_list(List),
+            Links0 = links(),
+            PmapIter =
+                iterator_pmap:pmap(
+                    F,
+                    ListIter,
+                    #{
+                        concurrency => C,
+                        recv_timeout => 0
+                    }
+                ),
+            ?assertError(
+                timeout,
+                iterator:to_list(PmapIter)
             ),
             ?assertEqual([], iterator_pmap:flush()),
             assert_links(Links0),

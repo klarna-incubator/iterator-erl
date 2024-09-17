@@ -8,10 +8,9 @@
 %% It prioritizes that all the workers are busy over returning the result immediately (so
 %% it does not return a result untill all workers are busy or inner iterator is depleted).
 %%
-%% When recv_timeout is not infinity, a `timeout' exception may be raised and no worker
-%% cleanup is done. It is recommended to not catch this error and crash the calling process.
-%%
-%% Worker processes are linked to the caller process.
+%% Worker processes are linked to the caller process. So it relies on link mechanism to kill
+%% the workers in case of errors in map function. It is not recommended to catch
+%% the error / trap exit and continue, because it may leave the workers hanging alive forever.
 -module(iterator_pmap).
 
 -export([
@@ -44,6 +43,16 @@ flush() ->
 pmap(F, I) ->
     pmap(F, I, #{}).
 
+%% @doc Parallel map over iterator.
+%% @param F function to apply to each element of the input iterator (executed inside worker process)
+%% @param I input iterator.
+%% @param Opts options:
+%%      <ul>
+%%       <li>`concurrency' (default: 10) - number of workers; also, this number of items will be
+%%        read-ahead from the input iterator</li>
+%%       <li>`recv_timeout' (default: infinity) - timeout for receiving result from worker, if
+%%       reached, the pool will be shut down and `timeout' error is generated</li>
+%%      </ul>
 -spec pmap(
     fun((InType) -> OutType),
     iterator:iterator(InType),
@@ -73,12 +82,18 @@ yield_next(#state{state = normal, free = [_ | _]} = Pool) ->
     yield_next(push(Pool));
 yield_next(#state{state = normal, free = [], busy = Busy, recv_timeout = Timeout} = Pool) ->
     %% All workers are busy, wait for the next result.
-    {Result, Pid, Busy1} = recv(Busy, Timeout),
-    Pool1 = push(Pool#state{
-        free = [Pid],
-        busy = Busy1
-    }),
-    {Result, Pool1};
+    case recv(Busy, Timeout) of
+        %% We can't get `empty' here, because we have at least one busy worker.
+        {Result, Pid, Busy1} ->
+            Pool1 = push(Pool#state{
+                free = [Pid],
+                busy = Busy1
+            }),
+            {Result, Pool1};
+        timeout ->
+            shutdown(Pool),
+            error(timeout)
+    end;
 yield_next(#state{state = final, busy = Busy, recv_timeout = Timeout} = Pool) ->
     %% The inner iterator is exhausted, wait for the remaining results.
     case recv(Busy, Timeout) of
