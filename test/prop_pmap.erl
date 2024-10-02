@@ -4,6 +4,7 @@
 %% Tests
 -export([
     prop_order_is_preserved/0,
+    prop_unordered/0,
     prop_vs_lists/0,
     prop_interrupted/0,
     prop_chained/0,
@@ -29,17 +30,59 @@ prop_order_is_preserved() ->
         begin
             ListIter = iterator:from_list(List),
             Links0 = links(),
+            Tag = erlang:make_ref(),
             PmapIter =
                 iterator_pmap:pmap(
                     fun(X) -> X end,
                     ListIter,
                     #{
                         recv_timeout => T,
-                        concurrency => C
+                        concurrency => C,
+                        tag => Tag
                     }
                 ),
             ?assertEqual(List, iterator:to_list(PmapIter)),
-            ?assertEqual([], iterator_pmap:flush()),
+            ?assertEqual([], iterator_pmap:flush(Tag)),
+            assert_links(Links0),
+            true
+        end
+    ).
+
+%% @doc Test that unordered iterator processes all the elements
+prop_unordered() ->
+    Gen = {
+        proper_types:list({proper_types:integer(0, 30), proper_types:term()}),
+        proper_types:oneof([
+            infinity,
+            proper_types:integer(1000, 10000)
+        ]),
+        proper_types:pos_integer()
+    },
+    ?FORALL(
+        {List, T, C},
+        Gen,
+        begin
+            ListIter = iterator:from_list(List),
+            Links0 = links(),
+            Tag = erlang:make_ref(),
+            PmapIter =
+                iterator_pmap:pmap(
+                    fun({Sleep, _} = El) ->
+                        timer:sleep(Sleep),
+                        El
+                    end,
+                    ListIter,
+                    #{
+                        recv_timeout => T,
+                        concurrency => C,
+                        tag => Tag,
+                        ordered => false
+                    }
+                ),
+            %% We can't check that the order is different, but we can check that all elements
+            %% are processed
+            ?assertEqual(lists:sort(List), lists:sort(iterator:to_list(PmapIter))),
+            ?assertEqual([], iterator_pmap:flush(Tag)),
             assert_links(Links0),
             true
         end
@@ -62,20 +105,22 @@ prop_vs_lists() ->
             F = fun(X) -> X + 1 end,
             ListIter = iterator:from_list(List),
             Links0 = links(),
+            Tag = erlang:make_ref(),
             PmapIter =
                 iterator_pmap:pmap(
                     F,
                     ListIter,
                     #{
                         recv_timeout => T,
-                        concurrency => C
+                        concurrency => C,
+                        tag => Tag
                     }
                 ),
             ?assertEqual(
                 lists:map(F, List),
                 iterator:to_list(PmapIter)
             ),
-            ?assertEqual([], iterator_pmap:flush()),
+            ?assertEqual([], iterator_pmap:flush(Tag)),
             assert_links(Links0),
             true
         end
@@ -103,18 +148,19 @@ prop_interrupted() ->
             F = fun(X) -> X + 1 end,
             ListIter = iterator:from_list(List),
             Links0 = links(),
+            Tag = erlang:make_ref(),
             PmapIter =
                 iterator_pmap:pmap(
                     F,
                     ListIter,
-                    #{concurrency => C}
+                    #{concurrency => C, tag => Tag}
                 ),
             FirstNIter = iterator:sublist(PmapIter, TakeN),
             ?assertEqual(
                 lists:sublist(lists:map(F, List), TakeN),
                 iterator:to_list(FirstNIter)
             ),
-            ?assertEqual([], iterator_pmap:flush()),
+            ?assertEqual([], iterator_pmap:flush(Tag)),
             assert_links(Links0),
             true
         end
@@ -135,23 +181,26 @@ prop_chained() ->
             F2 = fun(X) -> X * 2 end,
             ListIter = iterator:from_list(List),
             Links0 = links(),
+            Tag1 = erlang:make_ref(),
+            Tag2 = erlang:make_ref(),
             Pmap1Iter =
                 iterator_pmap:pmap(
                     F1,
                     ListIter,
-                    #{concurrency => C1}
+                    #{concurrency => C1, tag => Tag1}
                 ),
             Pmap2Iter =
                 iterator_pmap:pmap(
                     F2,
                     Pmap1Iter,
-                    #{concurrency => C2}
+                    #{concurrency => C2, tag => Tag2}
                 ),
             ?assertEqual(
                 lists:map(F2, lists:map(F1, List)),
                 iterator:to_list(Pmap2Iter)
             ),
-            ?assertEqual([], iterator_pmap:flush()),
+            ?assertEqual([], iterator_pmap:flush(Tag1)),
+            ?assertEqual([], iterator_pmap:flush(Tag2)),
             assert_links(Links0),
             true
         end
@@ -170,20 +219,22 @@ prop_timeout() ->
             F = fun(X) -> timer:sleep(min(1000, X * 10)) end,
             ListIter = iterator:from_list(List),
             Links0 = links(),
+            Tag = erlang:make_ref(),
             PmapIter =
                 iterator_pmap:pmap(
                     F,
                     ListIter,
                     #{
                         concurrency => C,
-                        recv_timeout => 0
+                        recv_timeout => 0,
+                        tag => Tag
                     }
                 ),
             ?assertError(
                 timeout,
                 iterator:to_list(PmapIter)
             ),
-            ?assertEqual([], iterator_pmap:flush()),
+            ?assertEqual([], iterator_pmap:flush(Tag)),
             assert_links(Links0),
             true
         end
