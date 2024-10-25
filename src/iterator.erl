@@ -30,6 +30,7 @@
     map/2,
     mapfoldl/3,
     nthtail/2,
+    pv/3,
     sublist/2,
     takewhile/2,
     zip/3
@@ -484,6 +485,97 @@ maybe_next(done) ->
     done;
 maybe_next(#iter{} = Iter) ->
     next(Iter).
+
+-record(pv, {
+    f :: fun((any(), integer(), integer(), integer()) -> any()),
+    for_each_n :: pos_integer(),
+    every_s :: pos_integer(),
+    last_report_time :: integer(),
+    last_report_n :: non_neg_integer(),
+    total_n :: non_neg_integer(),
+    inner_i :: iterator:iterator(any())
+}).
+
+%% @doc Passthrough iterator one can use to periodically report the progress of the inner iterator.
+%% Name comes from `pv' (pipe view) Unix utility. See `man pv'.
+%% @param F function to call when one of the conditions triggers. Function arguments:
+%%   - `Data' - current element of the inner iterator (sample)
+%%   - `TimePassed' - time passed since the last report in native units
+%%   - `ItemsPassed' - number of items passed since the last report
+%%   - `TotalItems' - total number of items passed since the start
+%% `TimePassed' + `ItemsPassed' are convenient to calculate the speed of the stream.
+%% @param Opts trigger condition options:
+%%   - `for_each_n' - trigger every N-th element
+%%   - `every_s' - trigger every S seconds
+%% @param InnerIter inner iterator to wrap
+%%
+%% Keep in mind that whichever trigger condition is met first, the `F' function will be called and
+%% counters/timers will reset. So if you set `for_each_n' to 1000 and `every_s' to 30, then the
+%% function will be called either as counter reaches 1000 or 30 seconds pass since the last call.
+%%
+%% If it takes more than `every_s' seconds to process a single element, the function will be called
+%% with additional delay.
+-spec pv(
+    fun(
+        (Type, TimePassed :: integer(), ItemsPassed :: integer(), TotalItems :: integer()) -> any()
+    ),
+    #{
+        for_each_n => pos_integer(),
+        every_s => pos_integer()
+    },
+    iterator:iterator(Type)
+) -> iterator:iterator(Type) when
+    Type :: any().
+pv(F, Opts, InnerIter) when is_function(F, 4) ->
+    Start = erlang:monotonic_time(),
+    State = #pv{
+        f = F,
+        every_s = maps:get(every_s, Opts, 30),
+        for_each_n = maps:get(for_each_n, Opts, 1000),
+        last_report_time = Start,
+        last_report_n = 0,
+        total_n = 0,
+        inner_i = InnerIter
+    },
+    iterator:new(fun yield_pv/1, State).
+
+yield_pv(
+    #pv{
+        f = F,
+        every_s = TimeTrigger,
+        for_each_n = CountTrigger,
+        last_report_time = LastReportT,
+        last_report_n = LastReportN,
+        total_n = N,
+        inner_i = InnerIter
+    } = St
+) ->
+    case iterator:next(InnerIter) of
+        {ok, Data, NewInnerIter} ->
+            NextN = N + 1,
+            ItemsProcessed = NextN - LastReportN,
+            CountCondition = ItemsProcessed >= CountTrigger,
+            Now = erlang:monotonic_time(),
+            TimePassed = Now - LastReportT,
+            TimeCondition = erlang:convert_time_unit(TimePassed, native, second) >= TimeTrigger,
+            if
+                CountCondition orelse TimeCondition ->
+                    F(Data, TimePassed, ItemsProcessed, NextN),
+                    {Data, St#pv{
+                        last_report_time = Now,
+                        last_report_n = NextN,
+                        total_n = NextN,
+                        inner_i = NewInnerIter
+                    }};
+                true ->
+                    {Data, St#pv{
+                        total_n = NextN,
+                        inner_i = NewInnerIter
+                    }}
+            end;
+        done ->
+            done
+    end.
 
 %% @doc Iterator over .eterm file (file containing dot-terminated Erlang terms)
 %% XXX: never abandon this iterator from long-running processes! It would leak file descriptor!

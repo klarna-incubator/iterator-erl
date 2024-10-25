@@ -95,7 +95,29 @@ OTP `lists` module.
 Functions `iterator_pmap:pmap/2` and `iterator_pmap:pmap/3` provide parallel version
 of `iterator:map/2`: it takes iterator as input and returns a new iterator where map function
 is executed for each input element in parallel on a pool of worker processes.
-While elements of input are processed in parallel, the ordering of elements is preserved.
+The `ordered` parameter controls if the parallel map should preserve the order of the original
+iterator or it is allowed to reshuffle the elements (so it outputs elements which are processed
+faster - earlier, increasing the throughput).
+
+Another non-standard function is `pv/3` (from `man pv` - "pipe view"). A pass-through iterator
+that can be added somewhere in the pipeline to periodically (either every `for_each_n` elements
+or every `every_s` seconds) report the current progress of a long-running iterator:
+
+```erlang
+I0 = ...,
+I1 = iterator:pv(
+  fun(SampleElement, TimePassed, ItemsPassed, TotalItems) ->
+    TimeS = erlang:convert_time_unit(TimePassed, native, second),
+    ?LOG_INFO("Processed ~p items. Pace is ~p per-second. Current item: ~p",
+              [TotalItems, ItemsPassed / TimeS, SampleElement])
+  end,
+  #{for_each_n => 1000,
+    every_s => 30},
+  I0),
+...
+```
+This example will log current progress either every 30 seconds or after processing every 1000
+elements (whichever triggers first).
 
 ## Setup
 

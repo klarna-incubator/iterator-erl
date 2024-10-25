@@ -245,14 +245,26 @@ links() ->
     lists:sort(L).
 
 assert_links(Links0) ->
+    %% Wait up to 50 * 100 = 5s
+    assert_links(Links0, 50, 100).
+
+assert_links(Links0, N, Sleep) when N > 0 ->
     Links = links(),
-    ?assertEqual(
-        Links0,
-        Links,
-        [
-            {extra, [
-                {P, erlang:process_info(P)}
-             || P <- ordsets:subtract(Links, Links0)
-            ]}
-        ]
-    ).
+    if
+        length(Links0) =:= length(Links) ->
+            ?assertEqual(
+                Links0,
+                Links,
+                [
+                    {extra, [
+                        {P, erlang:process_info(P)}
+                     || P <- ordsets:subtract(Links, Links0)
+                    ]}
+                ]
+            );
+        true ->
+            timer:sleep(Sleep),
+            assert_links(Links0, N - 1, Sleep)
+    end;
+assert_links(Links, _, _) ->
+    ?assertEqual(Links, links()).

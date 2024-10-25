@@ -34,6 +34,9 @@ jobs:
     - name: Run Proper Tests
       run: rebar3 proper -c
 
+    - name: Run EUnit Tests
+      run: rebar3 eunit -c
+
     - name: Coverage
       run: rebar3 cover --verbose --min_coverage 80  # zip/3 can only be fully tested on OTP-26+
 
