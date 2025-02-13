@@ -89,8 +89,15 @@ With this code, using `iterator`, we managed to go through the whole file never 
 a single line in-memory but were able to work with it using the same code style and high-order
 functions as what we would use if we read all the file lines in memory.
 
-Full list of helper functions see in the `iterator.erl`. But the naming is the same as in the
-OTP `lists` module.
+Full list of helper functions see in the [`iterator.erl`](src/iterator.erl) or in
+[HEX docs](https://hexdocs.pm/iterator/iterator.html). But the naming is the same as in the
+OTP `lists` module. There are several differences however:
+
+* `iterator:chunks/2`
+* `iterator:flatten1/1` like `lists:flatten/1`, but only goes 1 level deep like `flatmap`
+* `iterator:mapfoldl/3` differs from `lists` version - it is rather a statefull `map` here
+
+### Parallel processing
 
 Functions `iterator_pmap:pmap/2` and `iterator_pmap:pmap/3` provide parallel version
 of `iterator:map/2`: it takes iterator as input and returns a new iterator where map function
@@ -98,6 +105,33 @@ is executed for each input element in parallel on a pool of worker processes.
 The `ordered` parameter controls if the parallel map should preserve the order of the original
 iterator or it is allowed to reshuffle the elements (so it outputs elements which are processed
 faster - earlier, increasing the throughput).
+
+### Rate limiting
+
+Function `iterator_rate:token_bucket/2` provide a rate-limiter (shaper) pass-through iterator
+that makes sure that no more then X items can pass through it in the time window. It calls
+`timer:sleep/1` when the rate limit is exceeded.
+See [Token Bucket algorithm](https://en.wikipedia.org/wiki/Token_bucket).
+Our implementation does not add all tokens at once, but just sleeps up to `window_ms / rate` at
+once if necessary. Each item in the iterator consumes exactly one token.
+
+The following code would keep the rate of the items passing through it at no more than
+30 per-second, allowing short-term bursts up to 60 items.
+
+```erlang
+I0 = ...,
+I1 = iterator_rate:token_bucket(
+  #{
+    rate => 30,
+    capacity => 60,
+    window_ms => 1000
+   },
+   I0,
+...
+
+```
+
+### Progress reporting
 
 Another non-standard function is `pv/3` (from `man pv` - "pipe view"). A pass-through iterator
 that can be added somewhere in the pipeline to periodically (either every `for_each_n` elements
@@ -118,6 +152,8 @@ I1 = iterator:pv(
 ```
 This example will log current progress either every 30 seconds or after processing every 1000
 elements (whichever triggers first).
+
+If you don't like the name `pv`, there is an alias named `iterator:report/3`.
 
 ## Setup
 

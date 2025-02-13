@@ -53,3 +53,69 @@ pv_every_s_test() ->
         I1
     ),
     iterator:to_list(I2).
+
+%% @doc Test that with unlimited supply of items, with rate 1 and no burrst, we get 1 item per second
+rate_token_bucket_flat_test() ->
+    L = lists:seq(1, 5),
+    Sleeps = [0, 0, 0, 0, 0],
+    Times = [0, 500, 1000, 1500, 2000],
+    I0 = iterator:from_list(L),
+    I1 = iterator_rate:token_bucket(#{rate => 2, capacity => 1}, I0),
+    ?assertEqual(L, test_rate(I1, Times, Sleeps)).
+
+%% @doc Test that with unlimited supply of items, with rate 1, burst 5 we process first 5 items
+%% immediately and then 1 item per second
+rate_token_bucket_burst_test() ->
+    L = lists:seq(1, 9),
+    Sleeps = [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    Times = [0, 0, 0, 0, 0, 500, 1000, 1500, 2000],
+    I0 = iterator:from_list(L),
+    I1 = iterator_rate:token_bucket(#{rate => 2, capacity => 5}, I0),
+    ?assertEqual(L, test_rate(I1, Times, Sleeps)).
+
+%% @doc Test that with uneven consumption and no burst we just get a delay
+rate_token_bucket_uneven_consumption_test() ->
+    L = lists:seq(1, 5),
+    Sleeps = [0, 0, 250, 0, 0],
+    Times = [0, 500, 750, 1250, 1750],
+    I0 = iterator:from_list(L),
+    I1 = iterator_rate:token_bucket(#{rate => 2, capacity => 1}, I0),
+    ?assertEqual(L, test_rate(I1, Times, Sleeps)).
+
+%% @doc Test that with uneven supply we have a chance to refill the bucket
+rate_token_bucket_uneven_consumption_burst_test() ->
+    L = lists:seq(1, 9),
+    Sleeps = [0, 0, 0, 500, 0, 0, 0, 0],
+    Times = [0, 0, 0, 500, 500, 500, 1000, 1500],
+    I0 = iterator:from_list(L),
+    I1 = iterator_rate:token_bucket(#{rate => 2, capacity => 5}, I0),
+    ?assertEqual(L, test_rate(I1, Times, Sleeps)).
+
+%% @doc Delayed start just shifts the delay because burst is full anyway
+rate_token_bucket_slow_start_burst_test() ->
+    L = lists:seq(1, 9),
+    Sleeps = [500, 0, 0, 0, 0, 0, 0, 0],
+    Times = [500, 500, 500, 500, 500, 1000, 1500, 2000],
+    I0 = iterator:from_list(L),
+    I1 = iterator_rate:token_bucket(#{rate => 2, capacity => 5}, I0),
+    ?assertEqual(L, test_rate(I1, Times, Sleeps)).
+
+test_rate(I, Times, Sleeps) ->
+    Start = erlang:monotonic_time(millisecond),
+    test_rate(I, Times, Sleeps, Start).
+
+test_rate(I, [T | Times], [S | Sleeps], Start) ->
+    timer:sleep(S),
+    {ok, Value, I1} = iterator:next(I),
+    Now = erlang:monotonic_time(millisecond),
+    assert_duration(T, Now - Start, 10),
+    [Value | test_rate(I1, Times, Sleeps, Start)];
+test_rate(I, [], [], _) ->
+    %% Should return []
+    iterator:to_list(I).
+
+assert_duration(Expected, Duration, Tolerance) ->
+    ?assert(
+        abs(Expected - Duration) < Tolerance,
+        #{expected => Expected, duration => Duration}
+    ).

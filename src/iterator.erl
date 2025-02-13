@@ -31,6 +31,7 @@
     mapfoldl/3,
     nthtail/2,
     pv/3,
+    report/3,
     sublist/2,
     takewhile/2,
     zip/3
@@ -45,6 +46,7 @@
 %% Functions which consume iterators returning some value (to complete the pipeline)
 -export([
     fold/3,
+    foldl/3,
     foreach/2,
     search/2,
     to_list/1
@@ -177,6 +179,10 @@ fold(Fun, Acc, Iterator) ->
         {ok, Data, NewIterator} ->
             fold(Fun, Fun(Data, Acc), NewIterator)
     end.
+
+%% @doc Convenient alias for `fold/3'
+foldl(Fun, Acc, Iterator) ->
+    fold(Fun, Acc, Iterator).
 
 %% @doc Applies `Fun' to each element of the iterator, discarding the results
 %% It does not return a new iterator, but atom ok and always consumes the iterator to the end.
@@ -576,6 +582,10 @@ yield_pv(
         done ->
             done
     end.
+
+%% @doc Alias for `pv/3'
+report(F, Opts, InnerIter) ->
+    pv(F, Opts, InnerIter).
 
 %% @doc Iterator over .eterm file (file containing dot-terminated Erlang terms)
 %% XXX: never abandon this iterator from long-running processes! It would leak file descriptor!
