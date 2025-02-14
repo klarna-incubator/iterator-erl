@@ -55,7 +55,7 @@ Then we may build a "processing pipeline" for this iterator. Let's say we want t
 lines that match a regular expression:
 
 ```erlang
-LinesIterator = file_line_iterator("my_file.txt"),
+LinesIterator = file_line_iterator("my_huge_file.txt"),
 MatchingIterator =
     iterator:filter(
         fun(Line) ->
@@ -108,8 +108,8 @@ faster - earlier, increasing the throughput).
 
 ### Rate limiting
 
-Function `iterator_rate:token_bucket/2` provide a rate-limiter (shaper) pass-through iterator
-that makes sure that no more then X items can pass through it in the time window. It calls
+Function `iterator_rate:token_bucket/2` provides a rate-limiter (shaper) pass-through iterator
+that makes sure that no more than X items can pass through it in the time window. It calls
 `timer:sleep/1` when the rate limit is exceeded.
 See [Token Bucket algorithm](https://en.wikipedia.org/wiki/Token_bucket).
 Our implementation does not add all tokens at once, but just sleeps up to `window_ms / rate` at
@@ -126,7 +126,7 @@ I1 = iterator_rate:token_bucket(
     capacity => 60,
     window_ms => 1000
    },
-   I0,
+   I0),
 ...
 
 ```
