@@ -1,6 +1,6 @@
 {application, iterator, [
     {description, "Lazy sequences simulating stdlib `lists` module API"},
-    {vsn, "0.0.4"},
+    {vsn, "0.0.5"},
     {modules, []},
     {registered, []},
     {applications, [
