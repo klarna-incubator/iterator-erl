@@ -168,7 +168,7 @@ Add it to your `rebar.config`
 
 ## Release History
 
-See our [changelog](CHANGELOG.md).
+See in the GitHub releases section.
 
 ## License
 
