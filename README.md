@@ -108,15 +108,18 @@ faster - earlier, increasing the throughput).
 
 ### Rate limiting
 
-Function `iterator_rate:token_bucket/2` provides a rate-limiter (shaper) pass-through iterator
-that makes sure that no more than X items can pass through it in the time window. It calls
-`timer:sleep/1` when the rate limit is exceeded.
-See [Token Bucket algorithm](https://en.wikipedia.org/wiki/Token_bucket).
-Our implementation does not add all tokens at once, but just sleeps up to `window_ms / rate` at
+Functions `iterator_rate:leaky_bucket/2` and `iterator_rate:token_bucket/2` provides a
+rate-limiter (shaper) pass-through iterator that makes sure that no more than X items can pass
+through it in the time window. They call `timer:sleep/1` when the rate limit is exceeded.
+See [Leaky Bucket](https://en.wikipedia.org/wiki/Leaky_bucket) and
+[Token Bucket](https://en.wikipedia.org/wiki/Token_bucket) algorithms.
+The difference is that token bucket allows short bursts of up to `capacity` after pauses
+(amortized rate), while leaky bucket NEVER exceeds the rate.
+Our implementations do not add all tokens at once, but just sleeps up to `window_ms / rate` at
 once if necessary. Each item in the iterator consumes exactly one token.
 
 The following code would keep the rate of the items passing through it at no more than
-30 per-second, allowing short-term bursts up to 60 items.
+30 per-second, allowing short-term bursts after pauses up to 60 items.
 
 ```erlang
 I0 = ...,

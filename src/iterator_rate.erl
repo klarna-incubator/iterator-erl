@@ -1,7 +1,10 @@
 %%% @doc Passthrough iterators for rate limiting.
 -module(iterator_rate).
 
--export([token_bucket/2]).
+-export([
+    token_bucket/2,
+    leaky_bucket/2
+]).
 
 % Token bucket record to represent the state
 -record(token_bucket, {
@@ -99,4 +102,49 @@ token_bucket_yield(
             TimeToWaitMs = RateWindowMs / Rate,
             timer:sleep(ceil(TimeToWaitMs)),
             token_bucket_yield(UpdatedBucket)
+    end.
+
+-record(leaky_bucket, {
+    leak_rate :: pos_integer() | float(),
+    last_action_time = erlang:monotonic_time(millisecond) :: pos_integer(),
+    inner_iterator :: iterator:iterator(any())
+}).
+
+%% @doc Leaky bucket shaper
+%% It is almost the same as `token_bucket/2', but it doesn't allow bursts so the
+%% rate NEVER exceeds `leak_rate'.
+%% @param LeakRate How many items to allow per second; can be a positive float for less than 1
+-spec leaky_bucket(pos_integer() | float(), iterator:iterator(Item)) -> iterator:iterator(Item) when
+    Item :: any().
+leaky_bucket(LeakRate, InnerI) when is_number(LeakRate), LeakRate > 0 ->
+    iterator:new(
+        fun yield_leaky_bucket/1,
+        #leaky_bucket{leak_rate = LeakRate, inner_iterator = InnerI}
+    ).
+
+% Wait until enough time has passed to allow the next operation
+yield_leaky_bucket(
+    State = #leaky_bucket{
+        leak_rate = LeakRate,
+        last_action_time = LastActionTime,
+        inner_iterator = InnerI
+    }
+) ->
+    Now = erlang:monotonic_time(millisecond),
+    WaitTime = ceil(1000 / LeakRate),
+    ElapsedTime = Now - LastActionTime,
+    case ElapsedTime >= WaitTime of
+        true ->
+            noop;
+        false ->
+            timer:sleep(WaitTime - ElapsedTime)
+    end,
+    case iterator:next(InnerI) of
+        {ok, Data, NewInnerI} ->
+            {Data, State#leaky_bucket{
+                inner_iterator = NewInnerI,
+                last_action_time = erlang:monotonic_time(millisecond)
+            }};
+        done ->
+            done
     end.

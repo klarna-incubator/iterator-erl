@@ -4,6 +4,10 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+%%
+%% `pv' tests
+%%
+
 pv_each_n_test() ->
     ForEachN = 5,
     I0 = iterator:from_list(lists:seq(1, 50)),
@@ -54,7 +58,11 @@ pv_every_s_test() ->
     ),
     iterator:to_list(I2).
 
-%% @doc Test that with unlimited supply of items, with rate 1 and no burrst, we get 1 item per second
+%%
+%% Token bucket tests
+%%
+
+%% @doc Test that with unlimited supply of items, with rate 2 and no burrst, we get 2 per second
 rate_token_bucket_flat_test() ->
     L = lists:seq(1, 5),
     Sleeps = [0, 0, 0, 0, 0],
@@ -63,8 +71,8 @@ rate_token_bucket_flat_test() ->
     I1 = iterator_rate:token_bucket(#{rate => 2, capacity => 1}, I0),
     ?assertEqual(L, test_rate(I1, Times, Sleeps)).
 
-%% @doc Test that with unlimited supply of items, with rate 1, burst 5 we process first 5 items
-%% immediately and then 1 item per second
+%% @doc Test that with unlimited supply of items, with rate 2, burst 5 we process first 5 items
+%% immediately and then 2 per second
 rate_token_bucket_burst_test() ->
     L = lists:seq(1, 9),
     Sleeps = [0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -99,6 +107,52 @@ rate_token_bucket_slow_start_burst_test() ->
     I0 = iterator:from_list(L),
     I1 = iterator_rate:token_bucket(#{rate => 2, capacity => 5}, I0),
     ?assertEqual(L, test_rate(I1, Times, Sleeps)).
+
+%% @doc Test that consumer which is slower than the rate limiter would not be throttled
+rate_token_bucket_slow_consumer_test() ->
+    L = lists:seq(1, 5),
+    Sleeps = [500, 500, 500, 500, 500],
+    Times = [500, 1000, 1500, 2000, 2500],
+    I0 = iterator:from_list(L),
+    % high rate
+    I1 = iterator_rate:token_bucket(#{rate => 10, capacity => 1}, I0),
+    ?assertEqual(L, test_rate(I1, Times, Sleeps)).
+
+%%
+%% Leaky bucket tests
+%%
+
+%% @doc Test that with unlimited supply of items, with rate 2 we get 2 item per second
+rate_leaky_bucket_flat_test() ->
+    L = lists:seq(1, 5),
+    Sleeps = [0, 0, 0, 0, 0],
+    Times = [500, 1000, 1500, 2000, 2500],
+    I0 = iterator:from_list(L),
+    I1 = iterator_rate:leaky_bucket(2, I0),
+    ?assertEqual(L, test_rate(I1, Times, Sleeps)).
+
+%% @doc Test that consumer which is slower than the rate limiter would not be throttled
+rate_leaky_bucket_slow_consumer_test() ->
+    L = lists:seq(1, 5),
+    Sleeps = [500, 500, 500, 500, 500],
+    Times = [500, 1000, 1500, 2000, 2500],
+    I0 = iterator:from_list(L),
+    % high rate
+    I1 = iterator_rate:leaky_bucket(10, I0),
+    ?assertEqual(L, test_rate(I1, Times, Sleeps)).
+
+%% @doc Test with fractiopnal rate
+rate_leaky_bucket_fractional_test() ->
+    L = lists:seq(1, 3),
+    Sleeps = [0, 0, 0],
+    Times = [1112, 2224, 3336],
+    I0 = iterator:from_list(L),
+    I1 = iterator_rate:leaky_bucket(0.9, I0),
+    ?assertEqual(L, test_rate(I1, Times, Sleeps)).
+
+%%
+%% Helpers
+%%
 
 test_rate(I, Times, Sleeps) ->
     Start = erlang:monotonic_time(millisecond),
