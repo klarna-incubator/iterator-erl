@@ -23,7 +23,7 @@
     pmap/3,
     flush/1
 ]).
--export([loop/3]).
+-export([init/4, loop/3]).
 -export_type([tag/0]).
 
 -type tag() :: any().
@@ -205,7 +205,7 @@ recv({unordered, Busy}, Tag, Timeout) ->
 
 launch(F, Tag, Concurrency) ->
     [
-        spawn_link(?MODULE, loop, [self(), F, Tag])
+        spawn_link(?MODULE, init, [logger:get_process_metadata(), self(), F, Tag])
      || _ <- lists:seq(1, Concurrency)
     ].
 
@@ -228,6 +228,13 @@ shutdown(#state{free = Free, tag = Tag, busy = Busy}) ->
      || Pid <- Pids
     ],
     ok.
+
+%% @private
+init(LoggerMeta, Parent, F, Tag) when is_map(LoggerMeta) ->
+    logger:set_process_metadata(LoggerMeta#{iterator_pmap_parent => Parent}),
+    loop(Parent, F, Tag);
+init(undefined, Parent, F, Tag) ->
+    init(#{}, Parent, F, Tag).
 
 %% @private
 loop(Parent, F, Tag) ->

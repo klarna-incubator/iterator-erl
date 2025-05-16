@@ -105,6 +105,7 @@ is executed for each input element in parallel on a pool of worker processes.
 The `ordered` parameter controls if the parallel map should preserve the order of the original
 iterator or it is allowed to reshuffle the elements (so it outputs elements which are processed
 faster - earlier, increasing the throughput).
+Worker processes inherit OTP logger process metadata from `logger:get_process_metadata()`.
 
 ### Rate limiting
 
