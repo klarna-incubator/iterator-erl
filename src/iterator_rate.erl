@@ -18,8 +18,8 @@
     rate_window_ms :: pos_integer(),
     %% Variables
 
-    % Current number of tokens in the bucket
-    tokens :: non_neg_integer(),
+    % Current number of tokens in the bucket (float to track fractional tokens)
+    tokens :: float(),
     % Last time the tokens were updated
     last_refill :: pos_integer(),
     % Inner iterator
@@ -64,7 +64,7 @@ token_bucket(Opts, InnerI) ->
             rate = Rate,
             capacity = Capacity,
             rate_window_ms = RateWindowMs,
-            tokens = Capacity,
+            tokens = float(Capacity),
             last_refill = erlang:monotonic_time(millisecond),
             inner_iterator = InnerI
         }
@@ -80,33 +80,42 @@ token_bucket_yield(
         inner_iterator = InnerI
     } = Bucket
 ) ->
-    %% refill (todo: refill lazily)
+    %% Calculate how many tokens to add based on elapsed wall-clock time.
+    %% Float arithmetic prevents fractional token loss when time deltas are small.
     Now = erlang:monotonic_time(millisecond),
-    TimePassedMs = Now - LastRefill,
-    AddedTokens = round(TimePassedMs * Rate / RateWindowMs),
-    NewTokens = min(Capacity, Tokens + AddedTokens),
-    UpdatedBucket = Bucket#token_bucket{tokens = NewTokens, last_refill = Now},
-    %% consume
-    case NewTokens > 0 of
+    ElapsedMs = Now - LastRefill,
+    AddedTokens = ElapsedMs * Rate / RateWindowMs,
+    AvailableTokens = min(float(Capacity), Tokens + AddedTokens),
+
+    %% Check if we have at least 1 token to consume
+    case AvailableTokens >= 1.0 of
         true ->
+            %% Consume 1 token and yield from inner iterator
             case iterator:next(InnerI) of
                 {ok, Data, NewInnerI} ->
-                    {Data, UpdatedBucket#token_bucket{
-                        tokens = NewTokens - 1, inner_iterator = NewInnerI
+                    %% Update last_refill to Now so tokens continue accumulating
+                    %% during inner iterator execution and consumer processing time.
+                    %% This allows the amortized rate to be achieved even with
+                    %% variable producer speeds.
+                    {Data, Bucket#token_bucket{
+                        tokens = AvailableTokens - 1.0,
+                        inner_iterator = NewInnerI,
+                        last_refill = Now
                     }};
                 done ->
                     done
             end;
         false ->
-            %% Sleep just enough to get at least one token
+            %% Not enough tokens - sleep until we can add at least 1 token, then retry.
+            %% Don't update last_refill or tokens since we haven't consumed anything.
             TimeToWaitMs = RateWindowMs / Rate,
             timer:sleep(ceil(TimeToWaitMs)),
-            token_bucket_yield(UpdatedBucket)
+            token_bucket_yield(Bucket)
     end.
 
 -record(leaky_bucket, {
     leak_rate :: pos_integer() | float(),
-    last_action_time = erlang:monotonic_time(millisecond) :: pos_integer(),
+    last_action_time :: pos_integer(),
     inner_iterator :: iterator:iterator(any())
 }).
 
@@ -117,9 +126,18 @@ token_bucket_yield(
 -spec leaky_bucket(pos_integer() | float(), iterator:iterator(Item)) -> iterator:iterator(Item) when
     Item :: any().
 leaky_bucket(LeakRate, InnerI) when is_number(LeakRate), LeakRate > 0 ->
+    %% Initialize last_action_time to one interval in the past so the first item
+    %% yields immediately (or as soon as inner iterator completes) without additional delay
+    Now = erlang:monotonic_time(millisecond),
+    WaitTime = ceil(1000 / LeakRate),
+    InitialTime = Now - WaitTime,
     iterator:new(
         fun yield_leaky_bucket/1,
-        #leaky_bucket{leak_rate = LeakRate, inner_iterator = InnerI}
+        #leaky_bucket{
+            leak_rate = LeakRate,
+            last_action_time = InitialTime,
+            inner_iterator = InnerI
+        }
     ).
 
 % Wait until enough time has passed to allow the next operation
@@ -130,20 +148,35 @@ yield_leaky_bucket(
         inner_iterator = InnerI
     }
 ) ->
-    Now = erlang:monotonic_time(millisecond),
+    BeforeInner = erlang:monotonic_time(millisecond),
     WaitTime = ceil(1000 / LeakRate),
-    ElapsedTime = Now - LastActionTime,
-    case ElapsedTime >= WaitTime of
-        true ->
-            noop;
-        false ->
-            timer:sleep(WaitTime - ElapsedTime)
-    end,
+    ElapsedSinceLastYield = BeforeInner - LastActionTime,
+
+    %% Call inner iterator first to measure how long it takes
     case iterator:next(InnerI) of
         {ok, Data, NewInnerI} ->
+            AfterInner = erlang:monotonic_time(millisecond),
+            InnerDuration = AfterInner - BeforeInner,
+
+            %% Calculate total elapsed time including inner iterator processing
+            TotalElapsed = ElapsedSinceLastYield + InnerDuration,
+
+            %% Sleep only if we haven't yet reached the minimum interval
+            %% This ensures we never exceed the rate while accounting for inner processing time
+            SleepTime = max(0, WaitTime - TotalElapsed),
+            case SleepTime > 0 of
+                true -> timer:sleep(SleepTime);
+                false -> noop
+            end,
+
+            %% Calculate yield time instead of measuring to save one monotonic_time call.
+            %% timer:sleep has ~1ms consistent bias, resulting in ~1ms drift per 100 iterations,
+            %% which is acceptable for rate limiting purposes.
+            YieldTime = AfterInner + SleepTime,
+
             {Data, State#leaky_bucket{
                 inner_iterator = NewInnerI,
-                last_action_time = erlang:monotonic_time(millisecond)
+                last_action_time = YieldTime
             }};
         done ->
             done
