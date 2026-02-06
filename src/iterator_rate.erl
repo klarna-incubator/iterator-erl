@@ -18,8 +18,8 @@
     rate_window_ms :: pos_integer(),
     %% Variables
 
-    % Current number of tokens in the bucket
-    tokens :: non_neg_integer(),
+    % Current number of tokens in the bucket (float to track fractional tokens)
+    tokens :: float(),
     % Last time the tokens were updated
     last_refill :: pos_integer(),
     % Inner iterator
@@ -64,7 +64,7 @@ token_bucket(Opts, InnerI) ->
             rate = Rate,
             capacity = Capacity,
             rate_window_ms = RateWindowMs,
-            tokens = Capacity,
+            tokens = float(Capacity),
             last_refill = erlang:monotonic_time(millisecond),
             inner_iterator = InnerI
         }
@@ -80,28 +80,37 @@ token_bucket_yield(
         inner_iterator = InnerI
     } = Bucket
 ) ->
-    %% refill (todo: refill lazily)
+    %% Calculate how many tokens to add based on elapsed wall-clock time.
+    %% Float arithmetic prevents fractional token loss when time deltas are small.
     Now = erlang:monotonic_time(millisecond),
-    TimePassedMs = Now - LastRefill,
-    AddedTokens = round(TimePassedMs * Rate / RateWindowMs),
-    NewTokens = min(Capacity, Tokens + AddedTokens),
-    UpdatedBucket = Bucket#token_bucket{tokens = NewTokens, last_refill = Now},
-    %% consume
-    case NewTokens > 0 of
+    ElapsedMs = Now - LastRefill,
+    AddedTokens = ElapsedMs * Rate / RateWindowMs,
+    AvailableTokens = min(float(Capacity), Tokens + AddedTokens),
+
+    %% Check if we have at least 1 token to consume
+    case AvailableTokens >= 1.0 of
         true ->
+            %% Consume 1 token and yield from inner iterator
             case iterator:next(InnerI) of
                 {ok, Data, NewInnerI} ->
-                    {Data, UpdatedBucket#token_bucket{
-                        tokens = NewTokens - 1, inner_iterator = NewInnerI
+                    %% Update last_refill to Now so tokens continue accumulating
+                    %% during inner iterator execution and consumer processing time.
+                    %% This allows the amortized rate to be achieved even with
+                    %% variable producer speeds.
+                    {Data, Bucket#token_bucket{
+                        tokens = AvailableTokens - 1.0,
+                        inner_iterator = NewInnerI,
+                        last_refill = Now
                     }};
                 done ->
                     done
             end;
         false ->
-            %% Sleep just enough to get at least one token
+            %% Not enough tokens - sleep until we can add at least 1 token, then retry.
+            %% Don't update last_refill or tokens since we haven't consumed anything.
             TimeToWaitMs = RateWindowMs / Rate,
             timer:sleep(ceil(TimeToWaitMs)),
-            token_bucket_yield(UpdatedBucket)
+            token_bucket_yield(Bucket)
     end.
 
 -record(leaky_bucket, {

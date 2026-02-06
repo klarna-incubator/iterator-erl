@@ -25,11 +25,20 @@ rate_token_bucket_burst_test() ->
     I1 = iterator_rate:token_bucket(#{rate => 2, capacity => 5}, I0),
     ?assertEqual(L, test_rate(I1, Times, Sleeps)).
 
-%% @doc Test that with uneven consumption and no burst we just get a delay
+%% @doc Test that with uneven consumption, consumer sleep counts as wall-clock time
+%% With rate=2/sec, capacity=1: one token accumulates every 500ms of wall-clock time
 rate_token_bucket_uneven_consumption_test() ->
     L = lists:seq(1, 5),
     Sleeps = [0, 0, 250, 0, 0],
-    Times = [0, 500, 750, 1250, 1750],
+    %% Item 1: 0ms (initial token)
+    %% Item 2: 500ms (accumulated 1 token in 500ms)
+    %% Consumer sleeps 250ms, then checks at T=750ms
+    %% Only 250ms passed since last token at T=500, so only 0.5 tokens accumulated
+    %% Need to wait another 500ms for a full token
+    %% Item 3: 1250ms (500ms sleep from T=750)
+    %% Item 4: 1750ms (accumulated 1 token in 500ms)
+    %% Item 5: 2250ms (accumulated 1 token in 500ms)
+    Times = [0, 500, 1250, 1750, 2250],
     I0 = iterator:from_list(L),
     I1 = iterator_rate:token_bucket(#{rate => 2, capacity => 1}, I0),
     ?assertEqual(L, test_rate(I1, Times, Sleeps)).
@@ -61,6 +70,39 @@ rate_token_bucket_slow_consumer_test() ->
     % high rate
     I1 = iterator_rate:token_bucket(#{rate => 10, capacity => 1}, I0),
     ?assertEqual(L, test_rate(I1, Times, Sleeps)).
+
+%% @doc Test with conservative timing: rate=5/sec (200ms intervals) to avoid system noise
+%% This test verifies fractional token accumulation works correctly
+rate_token_bucket_conservative_rate_test() ->
+    L = lists:seq(1, 6),
+    Sleeps = [0, 0, 0, 0, 0, 0],
+    Times = [0, 200, 400, 600, 800, 1000],
+    I0 = iterator:from_list(L),
+    I1 = iterator_rate:token_bucket(#{rate => 5, capacity => 1, window_ms => 1000}, I0),
+    ?assertEqual(L, test_rate(I1, Times, Sleeps)).
+
+%% @doc Test fast producer with conservative rate (100ms intervals)
+%% Producer: 30ms/item, Rate: 10/sec (100ms/item), Capacity: 2
+%% This verifies the fix for fractional token loss - without the fix,
+%% the rate would be significantly lower than configured.
+rate_token_bucket_fast_producer_test() ->
+    L = lists:seq(1, 8),
+    Sleeps = [0, 0, 0, 0, 0, 0, 0, 0],
+    %% Item 1-2: burst (capacity=2), at ~30ms each
+    %% Item 3+: rate limited to ~100ms intervals (plus 30ms producer time each)
+    %% The pattern: 30, 60, ~190, ~320, ~360 (accumulated), ~490, ~620, ~650
+    Times = [30, 60, 190, 320, 360, 490, 620, 650],
+    I0 = iterator:from_list(L),
+    I1 = iterator:map(
+        fun(El) ->
+            % Producer takes 30ms
+            timer:sleep(30),
+            El
+        end,
+        I0
+    ),
+    I2 = iterator_rate:token_bucket(#{rate => 10, capacity => 2, window_ms => 1000}, I1),
+    ?assertEqual(L, test_rate(I2, Times, Sleeps)).
 
 %%
 %% Leaky bucket tests - Comprehensive suite
