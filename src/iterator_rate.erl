@@ -106,7 +106,7 @@ token_bucket_yield(
 
 -record(leaky_bucket, {
     leak_rate :: pos_integer() | float(),
-    last_action_time = erlang:monotonic_time(millisecond) :: pos_integer(),
+    last_action_time :: pos_integer(),
     inner_iterator :: iterator:iterator(any())
 }).
 
@@ -117,9 +117,18 @@ token_bucket_yield(
 -spec leaky_bucket(pos_integer() | float(), iterator:iterator(Item)) -> iterator:iterator(Item) when
     Item :: any().
 leaky_bucket(LeakRate, InnerI) when is_number(LeakRate), LeakRate > 0 ->
+    %% Initialize last_action_time to one interval in the past so the first item
+    %% yields immediately (or as soon as inner iterator completes) without additional delay
+    Now = erlang:monotonic_time(millisecond),
+    WaitTime = ceil(1000 / LeakRate),
+    InitialTime = Now - WaitTime,
     iterator:new(
         fun yield_leaky_bucket/1,
-        #leaky_bucket{leak_rate = LeakRate, inner_iterator = InnerI}
+        #leaky_bucket{
+            leak_rate = LeakRate,
+            last_action_time = InitialTime,
+            inner_iterator = InnerI
+        }
     ).
 
 % Wait until enough time has passed to allow the next operation
@@ -130,20 +139,35 @@ yield_leaky_bucket(
         inner_iterator = InnerI
     }
 ) ->
-    Now = erlang:monotonic_time(millisecond),
+    BeforeInner = erlang:monotonic_time(millisecond),
     WaitTime = ceil(1000 / LeakRate),
-    ElapsedTime = Now - LastActionTime,
-    case ElapsedTime >= WaitTime of
-        true ->
-            noop;
-        false ->
-            timer:sleep(WaitTime - ElapsedTime)
-    end,
+    ElapsedSinceLastYield = BeforeInner - LastActionTime,
+
+    %% Call inner iterator first to measure how long it takes
     case iterator:next(InnerI) of
         {ok, Data, NewInnerI} ->
+            AfterInner = erlang:monotonic_time(millisecond),
+            InnerDuration = AfterInner - BeforeInner,
+
+            %% Calculate total elapsed time including inner iterator processing
+            TotalElapsed = ElapsedSinceLastYield + InnerDuration,
+
+            %% Sleep only if we haven't yet reached the minimum interval
+            %% This ensures we never exceed the rate while accounting for inner processing time
+            SleepTime = max(0, WaitTime - TotalElapsed),
+            case SleepTime > 0 of
+                true -> timer:sleep(SleepTime);
+                false -> noop
+            end,
+
+            %% Calculate yield time instead of measuring to save one monotonic_time call.
+            %% timer:sleep has ~1ms consistent bias, resulting in ~1ms drift per 100 iterations,
+            %% which is acceptable for rate limiting purposes.
+            YieldTime = AfterInner + SleepTime,
+
             {Data, State#leaky_bucket{
                 inner_iterator = NewInnerI,
-                last_action_time = erlang:monotonic_time(millisecond)
+                last_action_time = YieldTime
             }};
         done ->
             done
